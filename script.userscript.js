@@ -7,10 +7,10 @@
 // @license      MIT
 // @homepage     https://github.com/xxrxtnxxov/alice-ai-seo-panel
 // @supportURL   https://github.com/xxrxtnxxov/alice-ai-seo-panel/issues
-// @updateURL    https://raw.githubusercontent.com/xxrxtnxxov/alice-ai-seo-panel/main/script.userscript.js
-// @downloadURL  https://raw.githubusercontent.com/xxrxtnxxov/alice-ai-seo-panel/main/script.userscript.js
+// @updateURL    https://github.com/xxrxtnxxov/alice-ai-seo-panel/raw/refs/heads/main/script.userscript.js
+// @downloadURL  https://github.com/xxrxtnxxov/alice-ai-seo-panel/raw/refs/heads/main/script.userscript.js
 // @match        https://yandex.ru/search*
-// @icon         https://...
+// @icon         https://raw.githubusercontent.com/xxrxtnxxov/alice-ai-seo-panel/refs/heads/main/alice.jpg
 // @grant        GM_setValue
 // @grant        GM_getValue
 // @grant        GM_setClipboard
