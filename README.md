@@ -2,7 +2,7 @@
 
 Userscript для анализа ответов Яндекс Алисы в поисковой выдаче. Отслеживает источники, домены, позиции в органике и ведёт журнал запросов.
 
-![Version](https://img.shields.io/badge/version-4.0-blue)
+![Version](https://img.shields.io/badge/version-4.2.4-blue)
 ![License](https://img.shields.io/badge/license-MIT-green)
 
 ## 📥 Установка
