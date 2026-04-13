@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Панель SEO для Алисы AI
 // @namespace    https://github.com/xxrxtnxxov
-// @version      4.0
+// @version      4.2.4
 // @description  SEO-анализ ответов Алисы: источники, домены, позиции, журнал.
 // @author       xxrxtnxxov
 // @license      MIT
@@ -38,13 +38,70 @@
         rightColor: '#bc8cff',
     };
 
+    const SEL = {
+        aliceLeft: [
+            'li[data-fast-name="neuro_answer"]',
+            'li[class*="futuris-snippet"]',
+        ],
+        aliceRight: [
+            '.EntityCard',
+            '[data-fast-name="entity_card"]',
+        ],
+        aliceContent: [
+            '.FuturisGPTMessage-GroupContent',
+        ],
+        aliceSources: [
+            '.FuturisGPTMessage-GroupSources',
+        ],
+        aliceSource: [
+            '.FuturisSource',
+        ],
+        aliceSourceHost: [
+            '.FuturisSource-Host',
+        ],
+        organic: [
+            '.Organic:not(.Organic_withLabel):not(.EntityOffersOrganic .Organic)',
+            '.serp-item:not([data-fast-name]):not(.RsyaGuarantee) .Organic',
+        ],
+        organicTitle: [
+            '.OrganicTitleContentSpan',
+            '.organic__title',
+            'h2',
+            'h3',
+        ],
+        organicUrl: [
+            '.organic__url',
+            'a[href^="http"]',
+        ],
+        related: [
+            '.RelatedBottom a',
+            '[data-fast-name="related_discovery"] a',
+        ],
+    };
+
+    function qs(key, ctx = document) {
+        for (const sel of SEL[key]) {
+            const el = ctx.querySelector(sel);
+            if (el) return el;
+        }
+        return null;
+    }
+
+    function qsa(key, ctx = document) {
+        for (const sel of SEL[key]) {
+            const els = ctx.querySelectorAll(sel);
+            if (els.length) return els;
+        }
+        return [];
+    }
+
     function loadSettings() {
-        return JSON.parse(GM_getValue('alice_v4_settings', JSON.stringify({
-            myDomains: [],
-            competitors: [],
-            panelX: null,
-            panelY: null,
-        })));
+        const defaults = { myDomains: [], competitors: [], panelX: null, panelY: null };
+        try {
+            return { ...defaults, ...JSON.parse(GM_getValue('alice_v4_settings', '{}')) };
+        } catch {
+            return defaults;
+        }
     }
     function saveSettings(s) { GM_setValue('alice_v4_settings', JSON.stringify(s)); }
     let settings = loadSettings();
@@ -85,31 +142,29 @@
     }
 
     function getLeftContainer() {
-        return document.querySelector(
-            'li[data-fast-name="neuro_answer"], li[class*="futuris-snippet"]'
-        ) || null;
+        return qs('aliceLeft') || null;
     }
 
     function getRightContainer() {
-        return document.querySelector('.EntityCard') || null;
+        return qs('aliceRight') || null;
     }
 
     function hasAliceBlock() {
-        return !!(getLeftContainer()?.querySelector('.FuturisGPTMessage-GroupContent') ||
-            getRightContainer()?.querySelector('.FuturisGPTMessage-GroupContent'));
+        return !!(getLeftContainer()?.querySelector(SEL.aliceContent[0]) ||
+            getRightContainer()?.querySelector(SEL.aliceContent[0]));
     }
 
     function getSourcesFromContainer(container) {
         if (!container) return {};
         const map = {};
-        const groupSources = container.querySelector('.FuturisGPTMessage-GroupSources');
+        const groupSources = qs('aliceSources', container);
         const sourceEls = groupSources
-            ? groupSources.querySelectorAll('.FuturisSource')
-            : container.querySelectorAll('.FuturisSource');
+            ? qsa('aliceSource', groupSources)
+            : qsa('aliceSource', container);
         sourceEls.forEach(s => {
             const a = s.tagName === 'A' ? s : s.closest('a');
-            const host = (s.querySelector('.FuturisSource-Host')?.textContent || '')
-                .trim().replace('*', '');
+            const host = ((qs('aliceSourceHost', s)?.textContent || '').trim().replace('*', ''))
+                || getHostname(a?.href || '');
             const href = a?.href || '';
             if (host && !map[host]) map[host] = href;
         });
@@ -118,7 +173,7 @@
 
     function extractCleanText(container) {
         if (!container) return '';
-        const content = container.querySelector('.FuturisGPTMessage-GroupContent');
+        const content = qs('aliceContent', container);
         if (!content) return '';
 
         const clone = content.cloneNode(true);
@@ -159,23 +214,22 @@
     function getOrganicResults() {
         const results = [];
         let pos = 1;
-        document.querySelectorAll('li.uEZlbEJdDf0xk').forEach(li => {
-            if (li.className.includes('futuris-snippet')) return;
-            const h = li.querySelector('h2, h3');
-            const a = li.querySelector('a[href^="http"]');
-            if (!h || !a) return;
-            results.push({ pos: pos++, title: h.textContent.trim(), domain: getHostname(a.href), href: a.href });
+        qsa('organic').forEach(el => {
+            const titleEl = qs('organicTitle', el);
+            const a = qs('organicUrl', el);
+            if (!titleEl || !a) return;
+            results.push({ pos: pos++, title: titleEl.textContent.trim(), domain: getHostname(a.href), href: a.href });
         });
         return results;
     }
 
     function getRelatedQueries() {
-        return [...document.querySelectorAll('.RelatedBottom a')]
+        return [...qsa('related')]
             .map(a => a.textContent.trim()).filter(Boolean);
     }
 
     function getAnswerType(container) {
-        const block = container?.querySelector('.FuturisGPTMessage-GroupContent');
+        const block = container ? qs('aliceContent', container) : null;
         if (!block) return 'нет';
         if (block.querySelector('table')) return 'таблица';
         if (block.querySelector('ol')) return 'нумер. список';
@@ -273,7 +327,7 @@
     function moveSourcesTop() {
         const leftContainer = getLeftContainer();
         const leftGptMsg = leftContainer?.querySelector('.FuturisGPTMessage');
-        const leftGroupContent = leftGptMsg?.querySelector('.FuturisGPTMessage-GroupContent');
+        const leftGroupContent = leftGptMsg ? qs('aliceContent', leftGptMsg) : null;
         if (leftGptMsg && leftGroupContent && !document.getElementById('alice-sources-top-left')) {
             const leftSources = getSourcesFromContainer(leftContainer);
             if (Object.keys(leftSources).length > 0) {
@@ -286,7 +340,7 @@
         }
 
         const rightContainer = getRightContainer();
-        const rightContent = rightContainer?.querySelector('.FuturisGPTMessage-GroupContent');
+        const rightContent = rightContainer ? qs('aliceContent', rightContainer) : null;
         if (rightContent && !document.getElementById('alice-sources-top-right')) {
             const rightSources = getSourcesFromContainer(rightContainer);
             if (Object.keys(rightSources).length > 0) {
@@ -614,6 +668,20 @@
 
     function buildPanel(data) {
         if (document.getElementById('alice-seo-panel')) return;
+        const hasAlice = !!data;
+        data = data || {
+            query: getQuery(),
+            leftContainer: false, rightContainer: false,
+            leftSources: {}, rightSources: {},
+            leftDomains: [], rightDomains: [],
+            leftSourcesCount: 0, rightSourcesCount: 0,
+            organic: [], related: [],
+            myInLeft: [], myInRight: [], myInOrganic: [],
+            compInLeft: [], compInRight: [],
+            sourceInOrganic: [],
+            leftAnswerType: 'нет', rightAnswerType: 'нет',
+            screenPercent: 0,
+        };
 
         const panel = document.createElement('div');
         panel.id = 'alice-seo-panel';
@@ -648,6 +716,10 @@
         });
 
         function sectionOverview() {
+            if (!hasAlice) {
+                return sectionTitle('📊 Обзор') +
+                    `<div style="color:${C.muted};font-size:11px;padding:6px 0">Блок Алисы не обнаружен на этой странице</div>`;
+            }
             const q = data.query;
             const myL = data.myInLeft.length > 0;
             const myR = data.myInRight.length > 0;
@@ -794,8 +866,8 @@
         }
 
         function sectionAnswer() {
-            const hasL = !!getLeftContainer()?.querySelector('.FuturisGPTMessage-GroupContent');
-            const hasR = !!getRightContainer()?.querySelector('.FuturisGPTMessage-GroupContent');
+            const hasL = !!(getLeftContainer() && qs('aliceContent', getLeftContainer()));
+            const hasR = !!(getRightContainer() && qs('aliceContent', getRightContainer()));
             return sectionTitle('✏️ Скопировать ответ', 'Копирует полный текст ответа Алисы с правильными переносами строк и заголовками') +
                 `<div style="display:grid;grid-template-columns:1fr 1fr;gap:6px">
           <button id="al-copy-left" style="${btnBase}text-align:center;width:100%;
@@ -817,6 +889,15 @@
         </div>`;
         }
 
+        function sectionImportExport() {
+            return sectionTitle('⚙️ Настройки', 'Экспорт и импорт: настройки (домены, конкуренты) + журнал запросов + статистика доменов') +
+                `<div style="display:flex;gap:4px">
+          <button id="al-export-settings" style="${btnBase}flex:1;text-align:center">⬇ Экспорт</button>
+          <button id="al-import-settings" style="${btnBase}flex:1;text-align:center">⬆ Импорт</button>
+          <input id="al-import-file" type="file" accept=".json" style="display:none">
+        </div>`;
+        }
+
         body.innerHTML =
             sectionOverview() +
             sectionMyDomain() +
@@ -825,6 +906,7 @@
             sectionRelated() +
             sectionSources() +
             sectionAnswer() +
+            sectionImportExport() +
             sectionDatabase();
 
         panel.appendChild(header);
@@ -994,6 +1076,47 @@
 
         body.querySelector('#al-show-log')?.addEventListener('click', showJournal);
         body.querySelector('#al-show-stats')?.addEventListener('click', showDomainStats);
+
+        body.querySelector('#al-export-settings')?.addEventListener('click', () => {
+            const exportData = JSON.stringify({
+                settings,
+                log: JSON.parse(GM_getValue('alice_v4_log', '[]')),
+                stats: JSON.parse(GM_getValue('alice_v4_stats', JSON.stringify({ left: {}, right: {} }))),
+            }, null, 2);
+            GM_download({ url: 'data:application/json;charset=utf-8,' + encodeURIComponent(exportData), name: 'alice-seo-backup.json' });
+        });
+
+        const importFile = body.querySelector('#al-import-file');
+        body.querySelector('#al-import-settings')?.addEventListener('click', () => importFile?.click());
+        importFile?.addEventListener('change', function () {
+            const file = this.files[0];
+            if (!file) return;
+            const reader = new FileReader();
+            reader.onload = e => {
+                try {
+                    const parsed = JSON.parse(e.target.result);
+                    if (typeof parsed === 'object' && parsed !== null) {
+                        if (parsed.settings) {
+                            settings = { ...loadSettings(), ...parsed.settings };
+                            saveSettings(settings);
+                            redrawTags(body);
+                            refreshSourcesTop();
+                        }
+                        if (Array.isArray(parsed.log)) {
+                            GM_setValue('alice_v4_log', JSON.stringify(parsed.log));
+                        }
+                        if (parsed.stats && typeof parsed.stats === 'object') {
+                            GM_setValue('alice_v4_stats', JSON.stringify(parsed.stats));
+                        }
+                        flash(body.querySelector('#al-import-settings'), '✅ Импортировано!', '⬆ Импорт');
+                    }
+                } catch {
+                    flash(body.querySelector('#al-import-settings'), '⚠️ Ошибка JSON', '⬆ Импорт');
+                }
+            };
+            reader.readAsText(file);
+            this.value = '';
+        });
     }
 
     function flash(btn, tempText, origText) {
@@ -1057,16 +1180,38 @@
     let initialized = false;
 
     function init() {
-        if (initialized || !hasAliceBlock()) return;
+        if (initialized) return;
         initialized = true;
+
+        let aliceReady = false;
 
         setTimeout(() => {
             const data = analyze();
-            if (data) buildPanel(data);
+            aliceReady = !!data;
+            buildPanel(data);
             moveSourcesTop();
         }, 1200);
 
+        // If Alice block appears after panel was already built without data, refresh it
+        let aliceRefreshCount = 0;
+        const aliceRefreshObserver = new MutationObserver(() => {
+            if (aliceReady) { aliceRefreshObserver.disconnect(); return; }
+            if (hasAliceBlock() && document.getElementById('alice-seo-panel')) {
+                aliceReady = true;
+                aliceRefreshObserver.disconnect();
+                const newData = analyze();
+                if (newData) {
+                    document.getElementById('alice-seo-panel').remove();
+                    buildPanel(newData);
+                    moveSourcesTop();
+                }
+            }
+            if (++aliceRefreshCount > 60) aliceRefreshObserver.disconnect();
+        });
+        aliceRefreshObserver.observe(document.body, { childList: true, subtree: true });
+
         let sourcesCheckCount = 0;
+        let panelRefreshedWithSources = false;
         const sourcesObserver = new MutationObserver(() => {
             const leftHasSources = !!document.querySelector(
                 'li[data-fast-name="neuro_answer"] .FuturisGPTMessage-GroupSources, ' +
@@ -1081,16 +1226,37 @@
                 moveSourcesTop();
             }
 
+            // Rebuild panel with source data if it was built before sources loaded
+            if (!panelRefreshedWithSources && (leftHasSources || rightHasSources)) {
+                const newData = analyze();
+                if (newData && (newData.leftSourcesCount > 0 || newData.rightSourcesCount > 0)) {
+                    panelRefreshedWithSources = true;
+                    document.getElementById('alice-seo-panel')?.remove();
+                    buildPanel(newData);
+                }
+            }
+
             sourcesCheckCount++;
             if (sourcesCheckCount > 30) sourcesObserver.disconnect();
         });
         sourcesObserver.observe(document.body, { childList: true, subtree: true });
 
         let retryCount = 0;
+        let lastTotalSources = 0;
         const retryInterval = setInterval(() => {
             retryCount++;
             moveSourcesTop();
-            if (retryCount >= 5) clearInterval(retryInterval);
+            const newData = analyze();
+            if (newData) {
+                const total = newData.leftSourcesCount + newData.rightSourcesCount;
+                if (total > lastTotalSources) {
+                    lastTotalSources = total;
+                    panelRefreshedWithSources = true;
+                    document.getElementById('alice-seo-panel')?.remove();
+                    buildPanel(newData);
+                }
+            }
+            if (retryCount >= 8) clearInterval(retryInterval);
         }, 1500);
     }
 
